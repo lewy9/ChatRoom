@@ -1,5 +1,6 @@
 # Module 6 Group Project
-### [Homepage](http://ec2-18-220-253-254.us-east-2.compute.amazonaws.com:3456/index.html)
+### Installation:
+`npm instal`
 
 * To create a private room, you need to type the password.
 * To create a public room, just ignore the password input box. 
