@@ -1,5 +1,4 @@
 # Module 6 Group Project
-### By Weichen Zhu(466984) & Zuyu Liao(467613)
 ### [Homepage](http://ec2-18-220-253-254.us-east-2.compute.amazonaws.com:3456/index.html)
 
 * To create a private room, you need to type the password.
