@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Multi-room Chat Server</title>
+    <link rel="stylesheet" href="https://ajax.googleapis.com/ajax/libs/jqueryui/1.12.1/themes/smoothness/jquery-ui.css">
+    <link rel="stylesheet" type="text/css" href="stylesheet.css">
+    <script type="text/javascript" src="https://ajax.googleapis.com/ajax/libs/jquery/3.3.1/jquery.min.js"></script>
+    <script type="text/javascript" src="https://ajax.googleapis.com/ajax/libs/jqueryui/1.12.1/jquery-ui.min.js"></script>
+    <script src="/socket.io/socket.io.js"></script>
+    <script type ="text/javascript">
+        const socketio = io.connect();
+
+        // global variables
+        let nickname;
+        let dialogBox;
+
+        // Create user, and send user's nickname to the server to check validation
+        function createUser() {
+            nickname = document.getElementById("nickname").value;
+            // Check input
+            if(nickname === "") {
+                alert("Please check your input!");
+            }
+            else {
+                document.getElementById("login").setAttribute("hidden", "hidden");
+                document.getElementById("room").removeAttribute("hidden");
+                $("#welcome1")
+                    .html("")
+                    .append("<h1>Welcome, " + nickname + "</h1>");
+                socketio.emit("create_user", nickname);
+            }
+        }
+        // Respond from the server
+        socketio.on("create_user_to_client", data => {
+            console.log(socketio.id, socketio.rooms);
+            showRooms(data['rooms'], data['names']);
+        });
+
+        function showRooms(rooms, names) {
+            let roomList = $("#rooms");
+            roomList.html("");
+            roomList.append("<a>There are "+names.length + " people connected now...</a><br>");
+            for(let i = 0; i < rooms.length; i++) {
+                const title = rooms[i].name + " created by " + rooms[i].owner;
+                const id = rooms[i].name + "-created-by-" + rooms[i].owner;
+                // roomList.append(
+                //     "<a id='"+id+"' href='#'>" + title + "</a>"
+                // );
+                let element = document.createElement("a");
+                element.id = id;
+                element.href = "#";
+                element.text = title;
+                element.addEventListener("click", function () {
+                    joinRoom(rooms[i])
+                }, false);
+                roomList.append(element);
+                roomList.append("<br>");
+            }
+        }
+
+        let currRoom = null;
+        function joinRoom(room) {
+            if(room.password === "") {
+                // It is a public room, just enter directly
+                socketio.emit("joinRoom", {nickname: nickname, room: room});
+                $("#welcome2")
+                    .html("")
+                    .append("<h1>Welcome, " + nickname + "</h1>");
+            }
+            else {
+                // It is a private room. Open a dialog to type password.
+                dialogBox = $("#join");
+                dialogBox.dialog();
+                dialogBox
+                    .html("")
+                    .append("<input type='password' id='pwd-"+ room.name + room.password+"' placeholder='Type the password...'><br>" +
+                        "<button id='btn-"+ room.name +room.password+"'>Submit</button>")
+                    .on("click", "#btn-"+room.name+room.password, function () {
+                        const pwd = $("#pwd-"+room.name+room.password).val();
+                        console.log(pwd);
+                        console.log(room.password);
+                        if(pwd === room.password) {
+                            $("#welcome2")
+                                .html("")
+                                .append("<h1>Welcome, " + nickname + "</h1>");
+                            dialogBox.dialog("close");
+                            socketio.emit("joinRoom", {nickname: nickname, room: room});
+                        }
+                        else {
+                            console.log("Wrong Password");
+                        }
+                    })
+            }
+        }
+
+        function displayUsers() {
+            console.log(currRoom.users);
+            // display all the current users
+            let userList = $("#currentUsers");
+            userList.html("").append("<p>Current users in chat room: " + currRoom.name + "</p>");
+            for(let i = 0; i < currRoom.users.length; i++) {
+                let element = document.createElement("a");
+                element.id = currRoom.users[i];
+                element.href = "#";
+                if(currRoom.users[i] === currRoom.owner)
+                    element.text = currRoom.users[i] + " __Admin";
+                else
+                    element.text = currRoom.users[i];
+                if(currRoom.users[i] !== nickname) {
+                    element.addEventListener("click", function () {
+                        admin(currRoom.users[i]);
+                    }, false);
+                }
+                userList.append(element);
+                userList.append("<br>");
+            }
+        }
+
+        function sendPrivate(user) {
+            console.log("You just clicked user4444: " + user);
+            const msg = document.getElementById("message_private").value;
+            console.log(msg);
+            if (msg !== "") {
+                document.getElementById("message_private").value = "";
+                console.log("You just clicked user: " + user);
+                socketio.emit("sendPrivate", {sendFrom: nickname, room: currRoom, sendTo: user, msg: msg});
+                dialogBox.dialog("close");
+            }
+        }
+
+
+        function admin(user) {
+            console.log(user);
+            if(currRoom.owner === nickname) {
+                console.log("You just clicked user1111: " + user);
+                document.getElementById("admin").removeAttribute("hidden");
+            }
+            else {
+                document.getElementById("admin").setAttribute("hidden", "hidden");
+            }
+            dialogBox = $("#operate");
+            dialogBox.dialog();
+
+
+            $("#btn").html("").append("<button id='" + user + "'>Send</button>")
+                .on("click", "#"+user, function () {
+                   sendPrivate(user)
+                });
+
+            $("#admin").html("")
+                .append("<button id='"+ user+'--kick' +"'>Kick</button><br>" +
+                    "<button id='"+ user+'--ban' +"'>Ban</button>" +
+                    "<button id='"+ user+'--admin' +"'>Grant Admin</button>")
+                .on("click", "#"+user+"--kick", function () {
+                    kick(user);
+                    dialogBox.dialog("close");
+                })
+                .on("click", "#"+user+"--admin", function () {
+                    grantAdmin(user);
+                    dialogBox.dialog("close");
+                })
+                .on("click", "#"+user+"--ban", function () {
+                    ban(user);
+                    dialogBox.dialog("close");
+                });
+        }
+
+        socketio.on("joinRoom_to_client", (data) => {
+            console.log(data['isPermit']);
+            if(data['isPermit']) {
+                const room = data['room'];
+                if(room.owner === nickname) {
+                    if(room.password === "") {
+                        console.log("enter add password");
+                        $("#modify_pwd")
+                            .html("")
+                            .append("<p>You can Still Add Your Room Password here</p><br>" +
+                                "<input type='password' id='text-pwd1-"+ room.owner +"'/><br>" +
+                                "<button id='btn-pwd1"+ room.owner +"'>Submit</button>")
+                            .on("click", "#btn-pwd1"+room.owner, function () {
+                                let new_pwd = $("#text-pwd1-"+room.owner).val();
+                                console.log(new_pwd);
+                                socketio.emit("modify_pwd", {room: room, new_pwd: new_pwd});
+                            })
+                    }
+                    else {
+                        $("#modify_pwd")
+                            .html("")
+                            .append("<p>Modify Your Room Password here</p><br>" +
+                                "<input type='password' id='text-pwd2-"+ room.owner +"'/><br>" +
+                                "<button id='btn-pwd2"+ room.owner +"'>Submit</button>")
+                            .on("click", "#btn-pwd2"+room.owner, function () {
+                                const new_pwd = $("#text-pwd2-"+room.owner).val();
+                                console.log(new_pwd);
+                                socketio.emit("modify_pwd", {room: room, new_pwd: new_pwd});
+                            })
+                    }
+                }
+                if(currRoom != null) {
+                    // You were currently in this room, update the current users in this room
+                    const room = data['room'];
+                    if(currRoom.name === room.name && currRoom.password === room.password && currRoom.owner === room.owner) {
+                        currRoom = data['room'];
+                        document.getElementById("room").setAttribute("hidden", "hidden");
+                        document.getElementById("roomView").removeAttribute("hidden");
+                        console.log("Join Room " + currRoom.name);
+                        displayUsers();
+                    }
+                }
+                else {
+                    // You were not in any room
+                    if(nickname === data['nickname']) {
+                        currRoom = data['room'];
+                        document.getElementById("room").setAttribute("hidden", "hidden");
+                        document.getElementById("roomView").removeAttribute("hidden");
+                        console.log("Join Room " + currRoom.name);
+                        displayUsers();
+                    }
+                }
+            }
+            else {
+                if(nickname === data['nickname'])
+                    alert("You are banned!");
+            }
+        });
+
+        socketio.on("sendPrivate_to_client", (data) => {
+            if(currRoom != null) {
+                const room = data['room'];
+                if(currRoom.name === room.name && currRoom.password === room.password && currRoom.owner === room.owner) {
+                    console.log(data['sendFrom'], data['sendTo'], data['msg']);
+                    if(nickname === data['sendFrom']) {
+                        document.getElementById("chatLog").appendChild(document.createElement("hr"));
+                        document.getElementById("chatLog").appendChild(document.createTextNode("To " + data['sendTo'] + ": " + data['msg']));
+                    }
+                    else if(nickname === data['sendTo']) {
+                        document.getElementById("chatLog").appendChild(document.createElement("hr"));
+                        document.getElementById("chatLog").appendChild(document.createTextNode("From " + data['sendFrom'] + ": " + data['msg']));
+                    }
+                }
+            }
+        });
+
+        // Kick user
+        function kick(user) {
+            socketio.emit("kick", {kicked: user, room: currRoom})
+        }
+        socketio.on("kick_to_client", data => {
+            const room = data['room'];
+            if(currRoom != null) {
+                if(currRoom.name === room.name && currRoom.password === room.password && currRoom.owner === room.owner) {
+                    currRoom = room;
+                    console.log(currRoom.users,currRoom.name);
+                    displayUsers();
+                }
+            }
+            if(data['quit_user'] === nickname) {
+                console.log(data['quit_user'], nickname);
+                document.getElementById("chatLog").innerHTML = "";
+                document.getElementById("roomView").setAttribute("hidden", "hidden");
+                document.getElementById("room").removeAttribute("hidden");
+                currRoom = null;
+            }
+        });
+
+        // Ban user
+        function ban(user) {
+            socketio.emit("ban", {room: currRoom, banned: user})
+        }
+        socketio.on("ban_to_client", data => {
+            const room = data['room'];
+            console.log(room.ban);
+            if(currRoom != null) {
+                if(currRoom.name === room.name && currRoom.password === room.password && currRoom.owner === room.owner) {
+                    currRoom = room;
+                    console.log(currRoom.users,currRoom.name);
+                    displayUsers();
+                }
+            }
+            if(data['quit_user'] === nickname) {
+                console.log(data['quit_user'], nickname);
+                document.getElementById("chatLog").innerHTML = "";
+                document.getElementById("roomView").setAttribute("hidden", "hidden");
+                document.getElementById("room").removeAttribute("hidden");
+                currRoom = null;
+            }
+        });
+
+        // Grant Admin
+        function grantAdmin(user) {
+            socketio.emit("grantAdmin", {room: currRoom, admin: user})
+        }
+        socketio.on("grantAdmin_to_client", data => {
+            const room = data['room'];
+            console.log(room.ban);
+            if(currRoom != null) {
+                if(currRoom.name === room.name && currRoom.password === room.password) {
+                    currRoom = room;
+                    displayUsers();
+                }
+            }
+        });
+
+        // Create a new room
+        function createRoom() {
+            const roomName = document.getElementById("roomName").value;
+            const password = document.getElementById("roomPwd").value;
+            console.log(roomName, password);
+            // Check name input
+            if(roomName === "") {
+                alert("Please check your input!");
+            }
+            else {
+                socketio.emit("create_room", {roomName: roomName, password: password, owner: nickname});
+            }
+        }
+        // Respond from the server
+        socketio.on("create_room_to_client", data => {
+            document.getElementById("roomName").value = "";
+            document.getElementById("roomPwd").value = "";
+            showRooms(data['rooms'], data['names']);
+        });
+
+        function backToRooms() {
+            socketio.emit("back_to_room", {room: currRoom, nickname: nickname});
+        }
+        socketio.on("back_to_client", data => {
+            showRooms(data['rooms'], data['names']);
+            const room = data['room'];
+            if(currRoom != null) {
+                if(currRoom.name === room.name && currRoom.password === room.password && currRoom.owner === room.owner) {
+                    currRoom = room;
+                    console.log(currRoom.users,currRoom.name);
+                    displayUsers();
+                }
+            }
+            if(data['quit_user'] === nickname) {
+                console.log(data['quit_user'], nickname);
+                document.getElementById("chatLog").innerHTML = "";
+                document.getElementById("roomView").setAttribute("hidden", "hidden");
+                document.getElementById("room").removeAttribute("hidden");
+                currRoom = null;
+            }
+        });
+
+        // log out
+        function logout() {
+            document.getElementById("roomName").value = "";
+            document.getElementById("roomPwd").value = "";
+            document.getElementById("nickname").value = "";
+            socketio.emit("logout", nickname);
+            nickname = "";
+            document.getElementById("room").setAttribute("hidden", "hidden");
+            document.getElementById("login").removeAttribute("hidden");
+        }
+        socketio.on("logout_to_client", data => {
+            showRooms(data['rooms'], data['names'])
+        });
+
+        // Send message to the server side
+        function sendMessage(){
+            let msg = document.getElementById("message_input").value;
+            if(msg !== "")
+                socketio.emit("message_to_server", {message:msg, nickname: nickname, room: currRoom});
+        }
+        // Respond from the server
+        socketio.on("message_to_client",function(data) {
+            //Append an HR thematic break and the escaped HTML of the new message
+            const room = data['room'];
+            if(currRoom != null) {
+                if(currRoom.name === room.name && currRoom.password === room.password && currRoom.owner === room.owner) {
+                    document.getElementById("message_input").value = "";
+                    document.getElementById("chatLog").appendChild(document.createElement("hr"));
+                    document.getElementById("chatLog").appendChild(document.createTextNode(data['nickname'] + ": " + data['message']));
+                }
+            }
+        });
+
+        socketio.on("modify_pwd_to_client", data => {
+            $("#modify_pwd")
+                .html("");
+            showRooms(data['rooms'], data['names']);
+            if(currRoom != null) {
+                if(currRoom.name === data['room'].name && currRoom.owner === data['room'].owner) {
+                    console.log("351" + data['room'].password);
+                    currRoom = data['room'];
+                }
+            }
+        });
+
+    </script>
+    <style>
+        #login{
+            text-align:center;
+            font-family:fantasy;
+            font-size: 30px;
+            font-weight: bold;
+            background-color:lemonchiffon;
+            padding: 25px;
+            height:200px;
+            width:200px;
+            top:50%;
+            left:50%;
+            position:absolute;
+            margin-top:-100px;
+            margin-left:-100px;
+        }
+
+        #welcome1{
+            text-align:center;
+            font-family:Cambria, Cochin, Georgia, Times, 'Times New Roman', serif;
+            font-size: 40px;
+            font-weight: bold;
+            background-color:azure;
+        }
+
+        #room{
+            border-top: 3px solid black;
+            border-bottom: 3px solid black;
+            font-family: Georgia, 'Times New Roman', Times, serif;
+            font-size: 125%;
+            font-style: italic;
+            text-align:center;
+            padding-top: 50px;
+            padding-bottom: 50px;
+        }
+        #welcome2,#currentusers,#message,#modify_pwd{
+            height: 100%;
+			width: 100%;
+            margin-right: 0px;
+            color: DarkCyan;
+        }
+        #chatlog{
+            border-top: 3px maroon;
+            border-bottom: 3px maroon;
+            font-family: Georgia, 'Times New Roman', Times, serif;
+            font-size: 125%;
+            font-style: italic;
+            text-align:center;
+            padding-top: 50px;
+            padding-bottom: 50px;
+        }
+    </style>
+</head>
+<body>
+<!--Type username when start up the chat server-->
+<div id="login">
+    <label for="nickname">Your Nickname: </label><input type="text" id="nickname" maxlength="15"/>
+    <button onclick="createUser()">Create</button>
+</div>
+
+<!--Create a room & Display all the rooms-->
+<div id="room" hidden="hidden">
+    <div id="welcome1"></div><br>
+<!--    Create room-->
+    <label for="roomName">Create A Room, Name: </label><input type="text" id="roomName" />
+    <label for="roomPwd"> Password(Optional):</label>
+    <input type="password" id="roomPwd" />
+    <button onclick="createRoom()">Create</button>
+    <button onclick="logout()">Logout</button>
+<!--    Display all the rooms-->
+    <p>Room List:</p>
+    <div id="rooms"></div>
+</div>
+
+<!--Single Room View-->
+<div id="roomView" hidden="hidden">
+    <div id="welcome2"></div>
+<!--    Display current users in the room-->
+    <div id="currentUsers"></div>
+    <br>
+    <br>
+    <br>
+
+    <!--Display all the message-->
+    <div id="chatLog"></div>
+
+    <!--Type your message-->
+    <br>
+    <br>
+    <br>
+    <p>Input Box:</p>
+    <div id="message">
+        <label for="message_input"></label><input type="text" id="message_input" placeholder="Type here..."/>
+        <button onclick="sendMessage()">Send</button>
+    </div>
+    <button onclick="backToRooms()">Leave</button>
+    <div id="modify_pwd"></div>
+</div>
+
+<dialog id="operate">
+    <label for="message_private"></label><input type="text" id="message_private" placeholder="Whispers...">
+    <div id="btn"></div>
+    <div id="admin"></div>
+</dialog>
+<dialog id="join">
+</dialog>
+
+</body>
+</html>
