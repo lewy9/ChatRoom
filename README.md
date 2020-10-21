@@ -1,4 +1,3 @@
-# Module 6 Group Project
 ### Installation:
 `npm instal`
 
